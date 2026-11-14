@@ -1,0 +1,54 @@
+{
+  "locations": {
+    "key": "id",
+    "columns": {
+      "id": "text",
+      "resolution": "text",
+      "candidates": "json"
+    },
+    "description": "局部平面坐标，单位公里；候选位置带相对权重，单一位置的权重需在其支持内归一。不是实际个人地址。",
+    "references": {}
+  },
+  "deliveries": {
+    "key": "id",
+    "columns": {
+      "id": "text",
+      "day": "date",
+      "location_id": "text",
+      "species": "text",
+      "delivered": "bool",
+      "service_area": "text",
+      "quantity_kg": "number"
+    },
+    "description": "一行是一张配送单，未完成配送不进入完成订单暴露。",
+    "references": {
+      "location_id": "locations.id"
+    }
+  },
+  "contacts": {
+    "key": "id",
+    "columns": {
+      "id": "text",
+      "delivery_id": "text",
+      "claim_id": "text",
+      "day": "date",
+      "action": "text"
+    },
+    "description": "一项退货申请可产生多次联系；同一订单也可能有不同申请。计数单位必须指明订单、申请或联系。",
+    "references": {
+      "delivery_id": "deliveries.id"
+    }
+  },
+  "service_areas": {
+    "key": "id",
+    "columns": {
+      "id": "text",
+      "area_id": "text",
+      "valid_from": "date",
+      "valid_to": "date",
+      "boundary": "json"
+    },
+    "description": "配送服务可达边界，生效期左闭右开；不是销量或人口分母。",
+    "references": {}
+  }
+}
