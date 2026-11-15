@@ -4,7 +4,7 @@
 
 ## 目录
 
-`returnatlas/catalog.py` 解析并校验资料，`domain.py` 提供当前经营视图，`profile.py` 提供探索性数值摘要，`cases.py` 保存含资料副本的研究备注，`service.py` 处理 HTTP。`data/` 是可重复使用的虚构经营资料，`tests/` 检查当前接口和领域口径，`smoke.py` 发起真实本地 HTTP 请求后退出。
+`returnatlas/catalog.py` 解析并校验资料，`domain.py` 提供当前经营视图，`profile.py` 提供探索性数值摘要，`cluster.py` 实现分层 Poisson 空间/时空聚集扫描与地理不确定性稳定性分析，`reviews.py` 保存可回溯的不可变复核存档，`cases.py` 保存含资料副本的研究备注，`service.py` 处理 HTTP。`data/` 是可重复使用的虚构经营资料，`tests/` 检查当前接口和领域口径，`smoke.py` 发起真实本地 HTTP 请求后退出。聚集分析的完整统计口径见 `docs/cluster.md`。
 
 ## 本机运行
 
@@ -16,6 +16,17 @@ python3 -m returnatlas
 ```
 
 默认资料目录为 `data`，研究备注写入 `state`；入口支持 `--data`、`--state`、`--host` 和 `--port`。研究记录含完整源表副本和内容校验，不会因源文件后续更改自动变成新的研究记录。
+
+## 空间聚集复核线索
+
+服务启动后可请求 `GET /clusters/scan`（参数见 `docs/api.md`，方法见 `docs/cluster.md`），也可以离线运行：
+
+```bash
+python3 -m returnatlas scan --mc 399 --realizations 100 --output report.json
+python3 -m returnatlas scan --species 鱼 --week-from 2026-W35 --week-to 2026-W42 --spatial-only
+```
+
+扫描以完成配送订单为暴露、去重退货订单为事件，按品种×履约周分层标准化，用同一搜索网格上的置换蒙特卡洛控制族错误率；街道多候选点与服务边界版本通过重复实现和情景对比进入稳定性判断。没有配送的位置只列入无暴露清单，不解释为零风险；结论只支持街道/路段级，不产出住户标签。显著线索可通过 `POST /cluster-reviews` 连同引用证据固化为不可变存档。
 
 ## 测试和编译
 

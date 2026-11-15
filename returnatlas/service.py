@@ -2,16 +2,66 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+from pathlib import Path
+
 from .cases import CaseStore
 from .catalog import Catalog
+from .cluster import (BOUNDARY_SCENARIOS, DEFAULT_REALIZATIONS,
+                      DEFAULT_REPLICATIONS, DEFAULT_SEED, ScanError,
+                      build_boundary_versions, build_frame, build_geometry,
+                      cluster_scan, parse_bool)
 from .domain import overview
 from .profile import numeric_profiles
+from .reviews import ReviewStore
 
 
 class Application:
     def __init__(self, data, state):
         self.catalog = Catalog(data)
+        state = Path(state)
         self.cases = CaseStore(state)
+        self.reviews = ReviewStore(state / "reviews")
+
+    def _scan(self, query):
+        def single(name):
+            values = query.get(name)
+            if values is not None and len(values) > 1:
+                raise ScanError(f"参数 {name} 只能出现一次")
+            return values[0] if values else None
+
+        def integer(name, default, minimum, maximum):
+            raw = single(name)
+            if raw is None:
+                return default
+            try:
+                value = int(raw)
+            except ValueError as error:
+                raise ScanError(f"参数 {name} 需为整数") from error
+            if not minimum <= value <= maximum:
+                raise ScanError(f"参数 {name} 超出允许范围 {minimum} 至 {maximum}")
+            return value
+
+        species = query.get("species")
+        if species is not None:
+            species = sorted({item for value in species for item in value.split(",") if item})
+        scenario = single("scenario") or "time_varying"
+        if scenario not in BOUNDARY_SCENARIOS:
+            raise ScanError("未知边界情景")
+        include_time = parse_bool(single("spatial_only") or "0") is False
+        frame = build_frame(self.catalog, species=species,
+                            week_from=single("week_from"), week_to=single("week_to"))
+        geometry = build_geometry(self.catalog)
+        versions = build_boundary_versions(self.catalog)
+        report = cluster_scan(
+            self.catalog, geometry, frame, versions,
+            scenario=scenario,
+            replications=integer("mc", DEFAULT_REPLICATIONS, 0, 9999),
+            realization_count=integer("realizations", DEFAULT_REALIZATIONS, 0, 500),
+            min_events=integer("min_events", 2, 1, 100),
+            include_time=include_time,
+            seed=integer("seed", DEFAULT_SEED, 0, 2**31 - 1),
+        )
+        return {"source_fingerprint": self.catalog.fingerprint, "report": report}
 
     def dispatch(self, method, target, body=None):
         parsed = urlsplit(target)
@@ -34,6 +84,8 @@ class Application:
                 return 200, {"source_fingerprint": self.catalog.fingerprint, "view": overview(self.catalog)}
             if method == "GET" and path == "/profiles":
                 return 200, {"source_fingerprint": self.catalog.fingerprint, "profiles": numeric_profiles(self.catalog)}
+            if method == "GET" and path == "/clusters/scan":
+                return 200, self._scan(query)
             if method == "GET" and path == "/cases":
                 return 200, {"cases": self.cases.list()}
             if method == "GET" and path.startswith("/cases/"):
@@ -44,8 +96,23 @@ class Application:
                 if set(body) - {"label", "options", "notes"}:
                     raise ValueError("请求包含未知字段")
                 return 201, self.cases.create(self.catalog, body.get("label"), body.get("options"), body.get("notes", ""))
+            if method == "GET" and path == "/cluster-reviews":
+                return 200, {"reviews": self.reviews.list()}
+            if method == "GET" and path.startswith("/cluster-reviews/"):
+                return 200, self.reviews.read(path.split("/")[-1])
+            if method == "POST" and path == "/cluster-reviews":
+                if not isinstance(body, dict):
+                    raise ValueError("请求内容应为对象")
+                if set(body) - {"label", "report", "notes"}:
+                    raise ValueError("请求包含未知字段")
+                if not isinstance(body.get("report"), dict):
+                    raise ValueError("需提交完整扫描报告")
+                return 201, self.reviews.create(self.catalog, body.get("label"),
+                                                body["report"], body.get("notes", ""))
         except KeyError:
             return 404, {"error": "记录不存在"}
+        except ScanError as error:
+            return 400, {"error": str(error)}
         except (TypeError, ValueError) as error:
             return 400, {"error": str(error)}
         return 404, {"error": "接口不存在"}
@@ -62,7 +129,7 @@ def make_server(application, host="127.0.0.1", port=8080):
         def respond(self, method):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 <= length <= 262144:
+                if not 0 <= length <= 1048576:
                     raise ValueError("请求体过大")
                 body = json.loads(self.rfile.read(length)) if length else None
                 status, content = application.dispatch(method, self.path, body)
